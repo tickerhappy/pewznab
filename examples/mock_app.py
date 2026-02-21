@@ -8,16 +8,25 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse
 
 from pywznab import (
+    APIlimits,
+    BookRequest,
     Caps,
+    CapsRequest,
     Category,
     CategoryTree,
     ErrorCode,
+    FeedImage,
+    FeedMeta,
     Limits,
+    MovieRequest,
+    MusicRequest,
     NewznabAPI,
     NewznabError,
     Release,
+    SearchRequest,
     SearchResult,
     Searching,
+    TvSearchRequest,
     TvFilters,
 )
 
@@ -41,8 +50,13 @@ class Backend:
                     pubdate=base_date,
                     size=1_500_000_000,
                     category=5030,
+                    category_name="TV > HD",
                     description="The Pythonic S01E01",
                     nzb_id="pythonic-s01e01",
+                    details_url="http://localhost:8000/details/pythonic-s01e01",
+                    comments_url="http://localhost:8000/details/pythonic-s01e01#comments",
+                    guid_is_permalink=True,
+                    attrs={"guid": "pythonic-s01e01"},
                 ),
                 season=1,
                 episode=1,
@@ -55,8 +69,10 @@ class Backend:
                     pubdate=base_date + timedelta(days=1),
                     size=1_550_000_000,
                     category=5030,
+                    category_name="TV > HD",
                     description="The Pythonic S01E02",
                     nzb_id="pythonic-s01e02",
+                    attrs={"guid": "pythonic-s01e02"},
                 ),
                 season=1,
                 episode=2,
@@ -69,8 +85,10 @@ class Backend:
                     pubdate=base_date + timedelta(days=2),
                     size=1_600_000_000,
                     category=5030,
+                    category_name="TV > HD",
                     description="The Pythonic S01E03",
                     nzb_id="pythonic-s01e03",
+                    attrs={"guid": "pythonic-s01e03"},
                 ),
                 season=1,
                 episode=3,
@@ -83,8 +101,10 @@ class Backend:
                     pubdate=base_date + timedelta(days=7),
                     size=1_700_000_000,
                     category=5030,
+                    category_name="TV > HD",
                     description="The Pythonic S02E01",
                     nzb_id="pythonic-s02e01",
+                    attrs={"guid": "pythonic-s02e01"},
                 ),
                 season=2,
                 episode=1,
@@ -97,8 +117,10 @@ class Backend:
                     pubdate=base_date + timedelta(days=8),
                     size=1_750_000_000,
                     category=5030,
+                    category_name="TV > HD",
                     description="The Pythonic S02E02",
                     nzb_id="pythonic-s02e02",
+                    attrs={"guid": "pythonic-s02e02"},
                 ),
                 season=2,
                 episode=2,
@@ -111,8 +133,10 @@ class Backend:
                     pubdate=base_date + timedelta(days=9),
                     size=1_800_000_000,
                     category=5030,
+                    category_name="TV > HD",
                     description="The Pythonic S02E03",
                     nzb_id="pythonic-s02e03",
+                    attrs={"guid": "pythonic-s02e03"},
                 ),
                 season=2,
                 episode=3,
@@ -125,8 +149,10 @@ class Backend:
                     pubdate=base_date + timedelta(days=3),
                     size=2_100_000_000,
                     category=2040,
+                    category_name="Movies > HD",
                     description="The Python (movie)",
                     nzb_id="the-python-2026",
+                    attrs={"guid": "the-python-2026"},
                 ),
                 is_tv=False,
             ),
@@ -166,7 +192,29 @@ class Backend:
         sliced = items[offset : offset + limit]
         releases = [item.release for item in sliced]
 
-        return SearchResult(total=total, offset=offset, limit=limit, items=releases)
+        return SearchResult(
+            total=total,
+            offset=offset,
+            limit=limit,
+            items=releases,
+            feed=FeedMeta(
+                self_link="http://localhost:8000/api?t=search",
+                language="en-us",
+                web_master="info@example.local (pywznab Mock)",
+                image=FeedImage(
+                    url="http://localhost:8000/static/banner.jpg",
+                    title="pywznab Mock",
+                    link="http://localhost:8000",
+                    description="pywznab Mock feed",
+                ),
+            ),
+            api_limits=APIlimits(
+                apicurrent=0,
+                apimax=1000,
+                grabcurrent=0,
+                grabmax=1000,
+            ),
+        )
 
     async def get_nzb(self, nzb_id: str) -> tuple[Iterable[bytes], int]:
         payload = f"<nzb id=\"{nzb_id}\"></nzb>".encode("utf-8")
@@ -199,6 +247,9 @@ caps = Caps(
         ]
     ),
     searching=Searching(tv=True),
+    server_url="http://localhost:8000",
+    server_email="info@example.local",
+    server_strapline="Mock Newznab indexer powered by pywznab",
 )
 
 api = NewznabAPI(caps=caps, base_url="http://localhost:8000")
@@ -215,19 +266,20 @@ async def api_endpoint(request: Request):
             status_code=400,
         )
 
-    if req.type == "caps":
+    if isinstance(req, CapsRequest):
         return Response(api.render_caps(), media_type="application/xml")
 
-    if req.type in ("search", "tvsearch"):
+    if isinstance(req, (SearchRequest, TvSearchRequest, MovieRequest, MusicRequest, BookRequest)):
+        tv_filters = req.tv if isinstance(req, TvSearchRequest) else None
         result = await backend.search(
             req.q,
             cats=req.categories,
             maxage=req.maxage,
             offset=req.offset,
             limit=req.limit,
-            tv=req.tv,
+            tv=tv_filters,
         )
-        return Response(api.render_search(result), media_type="application/xml")
+        return Response(api.render_search(result, attrs=req.attrs), media_type="application/xml")
 
     return Response(
         api.render_error(ErrorCode.UNSUPPORTED_FUNCTION),
