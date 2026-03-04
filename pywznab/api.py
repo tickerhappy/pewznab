@@ -131,8 +131,6 @@ class NewznabAPI:
                 season=self._parse_optional_int(params.get("season"), "season"),
                 ep=self._parse_optional_int(params.get("ep"), "ep"),
             )
-            if not (q or tv.tvdbid):
-                raise NewznabError(ErrorCode.MISSING_PARAMETER, "tvsearch requires q or tvdbid")
             return TvSearchRequest(
                 q=q,
                 categories=categories,
